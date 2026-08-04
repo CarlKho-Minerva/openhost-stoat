@@ -44,7 +44,10 @@ COPY owner_auth.py /opt/stoat/owner_auth.py
 COPY openhost-sso.js /usr/share/nginx/html/openhost-sso.js
 
 RUN chmod 0755 /entrypoint.sh /opt/stoat/bin/* /usr/local/bin/minio /usr/local/bin/mc \
-    && sed -i 's#</head>#<script src="/openhost-sso.js"></script></head>#' /usr/share/nginx/html/index.html \
+    # Gate the app module behind the owner-session bootstrap. Starting both in
+    # parallel lets Stoat hydrate IndexedDB while the SSO record is mid-write.
+    && sed -i '/<script type="module" crossorigin src="\/assets\/index-NqnvUoWC.js"><\/script>/d' /usr/share/nginx/html/index.html \
+    && sed -i 's#</head>#<script type="module" src="/openhost-sso.js"></script></head>#' /usr/share/nginx/html/index.html \
     && nginx -t
 
 EXPOSE 8000
