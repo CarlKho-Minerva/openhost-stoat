@@ -19,7 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # the other loopback-only services supervised inside this container.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       ca-certificates curl gnupg netcat-openbsd nginx rabbitmq-server redis-server supervisor \
+       ca-certificates curl gnupg netcat-openbsd nginx python3-pymongo rabbitmq-server redis-server supervisor \
     && install -d -m 0755 /etc/apt/keyrings \
     && curl -fsSL https://pgp.mongodb.com/server-8.0.asc \
        | gpg --dearmor -o /etc/apt/keyrings/mongodb-server-8.0.gpg \
@@ -40,8 +40,11 @@ COPY --from=minio_client /usr/bin/mc /usr/local/bin/mc
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY entrypoint.sh /entrypoint.sh
+COPY owner_auth.py /opt/stoat/owner_auth.py
+COPY openhost-sso.js /usr/share/nginx/html/openhost-sso.js
 
 RUN chmod 0755 /entrypoint.sh /opt/stoat/bin/* /usr/local/bin/minio /usr/local/bin/mc \
+    && sed -i 's#</head>#<script src="/openhost-sso.js"></script></head>#' /usr/share/nginx/html/index.html \
     && nginx -t
 
 EXPOSE 8000

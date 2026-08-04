@@ -13,6 +13,26 @@ Self-hosting Stoat using Docker
 </div>
 <br/>
 
+## OpenHost package
+
+This fork packages the complete Stoat stack into the single container required
+by OpenHost. Supervisor runs MongoDB, Redis, RabbitMQ, MinIO, the Stoat API,
+events server, file server, owner-auth bridge, and Nginx. Persistent database
+state uses `OPENHOST_APP_DATA_DIR`; uploads use `OPENHOST_APP_ARCHIVE_DIR`.
+
+The zone owner is signed into a first-boot-created Stoat account automatically.
+Nginx releases that native Stoat session only when OpenHost supplies the trusted
+`X-OpenHost-Is-Owner: true` header. The generated account password is discarded,
+and no login credential or session token is written to the image or filesystem.
+Other visitors receive no session and continue through Stoat's normal account
+flow.
+
+Deploy with:
+
+```bash
+oh app deploy https://github.com/CarlKho-Minerva/openhost-stoat.git --wait
+```
+
 This repository contains configurations and instructions that can be used for deploying a full instance of Stoat, including the back-end, web front-end, file server, and metadata and image proxy.
 
 ## Table of Contents
