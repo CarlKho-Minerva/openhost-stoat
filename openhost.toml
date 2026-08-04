@@ -1,19 +1,19 @@
 [app]
 name = "stoat"
 version = "0.1.0"
-description = "Self-hosted Stoat chat platform on OpenHost"
+description = "Self-hosted Stoat web client on OpenHost"
 
 [runtime.container]
 image = "Dockerfile"
-port = 8000
+port = 80
 
 [routing]
 health_check = "/"
 public_paths = ["/"]
 
 [resources]
-memory_mb = 1024
-cpu_cores = 1.0
+memory_mb = 512
+cpu_cores = 0.5
 
 [data]
 app_data = true

@@ -1,3 +1,2 @@
-FROM ghcr.io/revoltchat/server:latest
-ENV PORT=8000
-EXPOSE 8000
+FROM ghcr.io/revoltchat/client:master
+EXPOSE 80
