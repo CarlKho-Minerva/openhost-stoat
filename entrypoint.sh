@@ -15,6 +15,12 @@ mkdir -p \
   "$APP_ARCHIVE/minio" \
   /run/stoat
 
+# The Debian RabbitMQ launcher drops privileges to the rabbitmq account even
+# when supervisord starts it as root. OpenHost creates mounted directories as
+# the container user, so repair ownership on every boot (including upgrades
+# from the initial image, which left this tree root-owned).
+chown -R rabbitmq:rabbitmq "$APP_DATA/rabbitmq"
+
 # Secrets must survive image upgrades. A newly generated encryption key would
 # make every previously uploaded file unreadable.
 SECRETS_FILE="$APP_DATA/secrets.env"
