@@ -42,6 +42,22 @@ set +a
 PUBLIC_HOST="${OPENHOST_APP_NAME:-stoat}.${OPENHOST_ZONE_DOMAIN:?OPENHOST_ZONE_DOMAIN is required}"
 PUBLIC_ORIGIN="https://$PUBLIC_HOST"
 
+# The official for-web image deliberately ships Vite placeholders for its
+# deployment wrapper to replace. Serving them verbatim makes URL construction
+# fail as soon as an authenticated session starts connecting.
+for asset in /usr/share/nginx/html/assets/index-*.js; do
+  sed -i \
+    -e "s#__VITE_API_URL__#$PUBLIC_ORIGIN/api#g" \
+    -e "s#__VITE_WS_URL__#wss://$PUBLIC_HOST/ws#g" \
+    -e "s#__VITE_MEDIA_URL__#$PUBLIC_ORIGIN/autumn#g" \
+    -e "s#__VITE_PROXY_URL__#$PUBLIC_ORIGIN#g" \
+    -e "s#__VITE_GIFBOX_URL__#https://api.gifbox.me#g" \
+    -e "s#__VITE_HCAPTCHA_SITEKEY__##g" \
+    -e "s#__VITE_RNNOISE_WORKLET_CDN_URL__##g" \
+    -e "s#__VITE_CFG_ENABLE_VIDEO__#false#g" \
+    "$asset"
+done
+
 cat > /Revolt.toml <<EOF
 production = true
 environment = "production"
