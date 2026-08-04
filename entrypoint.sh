@@ -51,7 +51,7 @@ for asset in /usr/share/nginx/html/assets/index-*.js; do
     -e "s#__VITE_API_URL__#$PUBLIC_ORIGIN/api#g" \
     -e "s#__VITE_WS_URL__#wss://$PUBLIC_HOST/ws#g" \
     -e "s#__VITE_MEDIA_URL__#$PUBLIC_ORIGIN/autumn#g" \
-    -e "s#__VITE_PROXY_URL__#$PUBLIC_ORIGIN#g" \
+    -e "s#__VITE_PROXY_URL__#$PUBLIC_ORIGIN/january#g" \
     -e "s#__VITE_GIFBOX_URL__#https://api.gifbox.me#g" \
     -e "s#__VITE_HCAPTCHA_SITEKEY__##g" \
     -e "s#__VITE_RNNOISE_WORKLET_CDN_URL__##g" \
@@ -72,7 +72,7 @@ app = "$PUBLIC_ORIGIN"
 api = "$PUBLIC_ORIGIN/api"
 events = "wss://$PUBLIC_HOST/ws"
 autumn = "$PUBLIC_ORIGIN/autumn"
-january = ""
+january = "$PUBLIC_ORIGIN/january"
 voso_legacy = ""
 voso_legacy_ws = ""
 

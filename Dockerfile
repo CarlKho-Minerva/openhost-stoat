@@ -5,6 +5,7 @@
 FROM ghcr.io/stoatchat/api:v0.13.8 AS api
 FROM ghcr.io/stoatchat/events:v0.13.8 AS events
 FROM ghcr.io/stoatchat/file-server:v0.13.8 AS files
+FROM ghcr.io/stoatchat/proxy:v0.13.8 AS proxy
 FROM ghcr.io/stoatchat/for-web:746bee5 AS web
 FROM quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z AS minio
 FROM quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z AS minio_client
@@ -33,6 +34,9 @@ RUN apt-get update \
 COPY --from=api /home/nonroot/revolt-delta /opt/stoat/bin/revolt-delta
 COPY --from=events /home/nonroot/revolt-bonfire /opt/stoat/bin/revolt-bonfire
 COPY --from=files /home/nonroot/revolt-autumn /opt/stoat/bin/revolt-autumn
+COPY --from=proxy /home/nonroot/revolt-january /opt/stoat/bin/revolt-january
+COPY --from=proxy /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=proxy /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 COPY --from=web /app/dist/ /usr/share/nginx/html/
 COPY --from=minio /usr/bin/minio /usr/local/bin/minio
 COPY --from=minio_client /usr/bin/mc /usr/local/bin/mc
@@ -41,7 +45,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY entrypoint.sh /entrypoint.sh
 COPY owner_auth.py /opt/stoat/owner_auth.py
-COPY import_stoatbridge.py import_discord_messages.py /opt/stoat/tools/
+COPY import_stoatbridge.py import_discord_messages.py backfill_message_embeds.py /opt/stoat/tools/
 COPY openhost-sso.js /usr/share/nginx/html/openhost-sso.js
 
 RUN chmod 0755 /entrypoint.sh /opt/stoat/bin/* /opt/stoat/tools/*.py /usr/local/bin/minio /usr/local/bin/mc \

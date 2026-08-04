@@ -107,4 +107,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 14705), Handler).serve_forever()
+    # January uses Stoat's fixed port 14705, so the OpenHost-only bridge owns
+    # the next loopback port instead.
+    ThreadingHTTPServer(("127.0.0.1", 14706), Handler).serve_forever()

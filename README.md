@@ -17,8 +17,9 @@ Self-hosting Stoat using Docker
 
 This fork packages the complete Stoat stack into the single container required
 by OpenHost. Supervisor runs MongoDB, Redis, RabbitMQ, MinIO, the Stoat API,
-events server, file server, owner-auth bridge, and Nginx. Persistent database
-state uses `OPENHOST_APP_DATA_DIR`; uploads use `OPENHOST_APP_ARCHIVE_DIR`.
+events server, file server, January metadata/image proxy, owner-auth bridge, and
+Nginx. Persistent database state uses `OPENHOST_APP_DATA_DIR`; uploads use
+`OPENHOST_APP_ARCHIVE_DIR`.
 
 The zone owner is signed into a first-boot-created Stoat account automatically.
 Nginx releases that native Stoat session only when OpenHost supplies the trusted
@@ -59,6 +60,27 @@ successful structure report path. Discord account packages contain only the
 requesting user's messages; the tool labels that limitation, retains original
 UTC timestamps and Discord message IDs, chunks by UTF-8 bytes, and uses
 per-channel completion markers and rollback to prevent duplicates.
+
+January must be running when messages are created for Stoat to generate rich
+link previews. After upgrading an instance that previously had January disabled,
+preview generation can be safely requeued for imported archive messages. The
+tool defaults to a dry run; add `--execute` only after checking its counts:
+
+```bash
+oh app ssh stoat "/opt/stoat/tools/backfill_message_embeds.py \
+  --server-id STOAT_SERVER_ID \
+  --server-id ANOTHER_STOAT_SERVER_ID"
+
+oh app ssh stoat "/opt/stoat/tools/backfill_message_embeds.py \
+  --server-id STOAT_SERVER_ID \
+  --server-id ANOTHER_STOAT_SERVER_ID \
+  --execute"
+```
+
+The backfill is restricted to owner-authored messages carrying the Discord
+archive marker. It edits each message with identical content through Stoat's
+public API, which uses the normal upstream embed queue, and writes a report to
+`OPENHOST_APP_ARCHIVE_DIR/imports`.
 
 Scan data and message content are runtime input only and are never copied into
 the image or repository.
