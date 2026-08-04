@@ -28,7 +28,7 @@ RUN apt-get update \
     && apt-get update \
     && apt-get install -y --no-install-recommends mongodb-org-server mongodb-mongosh \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /opt/stoat/bin /usr/share/nginx/html /var/log/supervisor
+    && mkdir -p /opt/stoat/bin /opt/stoat/tools /usr/share/nginx/html /var/log/supervisor
 
 COPY --from=api /home/nonroot/revolt-delta /opt/stoat/bin/revolt-delta
 COPY --from=events /home/nonroot/revolt-bonfire /opt/stoat/bin/revolt-bonfire
@@ -41,9 +41,10 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY entrypoint.sh /entrypoint.sh
 COPY owner_auth.py /opt/stoat/owner_auth.py
+COPY import_stoatbridge.py import_discord_messages.py /opt/stoat/tools/
 COPY openhost-sso.js /usr/share/nginx/html/openhost-sso.js
 
-RUN chmod 0755 /entrypoint.sh /opt/stoat/bin/* /usr/local/bin/minio /usr/local/bin/mc \
+RUN chmod 0755 /entrypoint.sh /opt/stoat/bin/* /opt/stoat/tools/*.py /usr/local/bin/minio /usr/local/bin/mc \
     # Gate the app module behind the owner-session bootstrap. Starting both in
     # parallel lets Stoat hydrate IndexedDB while the SSO record is mid-write.
     && sed -i '/<script type="module" crossorigin src="\/assets\/index-NqnvUoWC.js"><\/script>/d' /usr/share/nginx/html/index.html \

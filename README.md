@@ -38,6 +38,31 @@ Deploy with:
 oh app deploy https://github.com/CarlKho-Minerva/openhost-stoat.git --wait
 ```
 
+### Discord structure and history imports
+
+The image includes guarded operator tools under `/opt/stoat/tools`. They use the
+existing passwordless owner session only inside the container, never print the
+token, default to a dry run, refuse to replace a non-empty server, archive
+pre-import metadata and reports, and exit nonzero on partial failure.
+
+Import a StoatBridge scan into an existing empty starter server:
+
+```bash
+oh app ssh stoat "/opt/stoat/tools/import_stoatbridge.py \
+  --server-id STOAT_SERVER_ID \
+  --expected-guild-id DISCORD_GUILD_ID \
+  --execute" < scan.json
+```
+
+`import_discord_messages.py` accepts a compact JSON export on stdin plus the
+successful structure report path. Discord account packages contain only the
+requesting user's messages; the tool labels that limitation, retains original
+UTC timestamps and Discord message IDs, chunks by UTF-8 bytes, and uses
+per-channel completion markers and rollback to prevent duplicates.
+
+Scan data and message content are runtime input only and are never copied into
+the image or repository.
+
 This repository contains configurations and instructions that can be used for deploying a full instance of Stoat, including the back-end, web front-end, file server, and metadata and image proxy.
 
 ## Table of Contents
