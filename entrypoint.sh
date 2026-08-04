@@ -33,6 +33,7 @@ if [ ! -f "$SECRETS_FILE" ]; then
     printf 'MINIO_ROOT_PASSWORD=%s\n' "$(openssl rand -hex 24)"
   } > "$SECRETS_FILE"
 fi
+chmod 0600 "$SECRETS_FILE"
 
 set -a
 # shellcheck disable=SC1090

@@ -3,6 +3,7 @@
 
 import json
 import secrets
+import threading
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,7 @@ API = "http://127.0.0.1:14702"
 OWNER_EMAIL = "owner@openhost.internal"
 OWNER_USERNAME = "OpenHostOwner"
 database = MongoClient("mongodb://127.0.0.1:27017", connect=True)["revolt"]
+seed_lock = threading.Lock()
 
 
 def api_request(path, payload, token=None):
@@ -36,27 +38,36 @@ def api_request(path, payload, token=None):
 
 
 def owner_session():
-    account = database.accounts.find_one({"email_normalised": OWNER_EMAIL})
-    if account:
-        session = database.sessions.find_one(
-            {"user_id": account["_id"]}, sort=[("last_seen", -1)]
+    # Browsers may request the module more than once during a first load. Keep
+    # account creation single-flight so two requests cannot race each other.
+    with seed_lock:
+        account = database.accounts.find_one({"email_normalised": OWNER_EMAIL})
+        if account:
+            if database.users.count_documents({"_id": account["_id"]}, limit=1) != 1:
+                raise RuntimeError("owner account exists but onboarding is incomplete")
+            session = database.sessions.find_one(
+                {"user_id": account["_id"]}, sort=[("last_seen", -1)]
+            )
+            if not session:
+                raise RuntimeError("owner account exists without a usable session")
+            return session
+
+        password = secrets.token_urlsafe(32)
+        api_request("/auth/account/create", {"email": OWNER_EMAIL, "password": password})
+        login = api_request(
+            "/auth/session/login",
+            {
+                "email": OWNER_EMAIL,
+                "password": password,
+                "friendly_name": "OpenHost SSO",
+            },
         )
-        if not session:
-            raise RuntimeError("owner account exists without a usable session")
-        return session
+        if not login or login.get("result") != "Success":
+            raise RuntimeError("Stoat did not create the OpenHost owner session")
 
-    password = secrets.token_urlsafe(32)
-    api_request("/auth/account/create", {"email": OWNER_EMAIL, "password": password})
-    login = api_request(
-        "/auth/session/login",
-        {"email": OWNER_EMAIL, "password": password, "friendly_name": "OpenHost SSO"},
-    )
-    if not login or login.get("result") != "Success":
-        raise RuntimeError("Stoat did not create the OpenHost owner session")
-
-    api_request("/onboard/complete", {"username": OWNER_USERNAME}, login["token"])
-    print("[owner-auth] seeded and onboarded the OpenHost owner", flush=True)
-    return login
+        api_request("/onboard/complete", {"username": OWNER_USERNAME}, login["token"])
+        print("[owner-auth] seeded and onboarded the OpenHost owner", flush=True)
+        return login
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -80,6 +91,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "default-src 'none'")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

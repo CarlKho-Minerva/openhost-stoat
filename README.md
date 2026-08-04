@@ -27,6 +27,11 @@ and no login credential or session token is written to the image or filesystem.
 Other visitors receive no session and continue through Stoat's normal account
 flow.
 
+The owner-session endpoint is loopback-backed, trusted-header-gated,
+rate-limited, excluded from access logs, and marked `no-store`. MongoDB, Redis,
+RabbitMQ, MinIO, and the authentication bridge bind only to loopback. Runtime
+secrets are permissioned `0600` on every start.
+
 Deploy with:
 
 ```bash
