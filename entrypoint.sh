@@ -125,25 +125,31 @@ default_bucket = "revolt-uploads"
 # would silently leave those files out. Partial tables merge over the compiled
 # defaults (upstream's generate_config.sh sets video keys the same way), so
 # only the raised values need stating.
-# KNOWN NOT TO WORK, kept only so nobody retries it: Autumn ignores
-# file_upload_size_limits from every config path tried on 2026-08-07 - per-tier
-# sub-table, per-tier complete inline table, and global. A 30 MB upload still
-# returns 422 FileTooLarge {"max":20000000} from
-# crates/services/autumn/src/api.rs:212, so the ceiling is not reachable from
-# Revolt.toml in this build. body_limit_size below DOES apply, which is how we
-# know the file is being read at all. Four files in Carl's Discord archive
-# exceed 20 MB; they stay in the cold archive on the T7/PC and the import notes
-# them inline rather than dropping them silently. Raising this needs either a
-# patched Autumn or writing to MinIO + the attachments collection directly.
+# The TOML key is file_upload_size_limit - SINGULAR. The API advertises it back
+# as "file_upload_size_limits" (plural) in /api/, so copying the name from there
+# produces config that parses, deploys, and is silently ignored. Confirmed by
+# reading the default config embedded in the revolt-autumn binary, which is the
+# only place the real spelling appears. Raised so the Discord archive's screen
+# recordings and lecture captures (up to 116 MB) import natively instead of
+# being dropped; this is a single-owner instance with 135 GB free.
 [features.limits.global]
 body_limit_size = 200000000
-file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
 
-[features.limits.new_user]
-file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
+[features.limits.new_user.file_upload_size_limit]
+attachments = 150000000
+avatars = 4000000
+backgrounds = 6000000
+icons = 2500000
+banners = 6000000
+emojis = 500000
 
-[features.limits.default]
-file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
+[features.limits.default.file_upload_size_limit]
+attachments = 150000000
+avatars = 4000000
+backgrounds = 6000000
+icons = 2500000
+banners = 6000000
+emojis = 500000
 EOF
 
 printf '{"api":"%s/api"}\n' "$PUBLIC_ORIGIN" > /run/stoat/stoat.json
