@@ -125,14 +125,18 @@ default_bucket = "revolt-uploads"
 # would silently leave those files out. Partial tables merge over the compiled
 # defaults (upstream's generate_config.sh sets video keys the same way), so
 # only the raised values need stating.
+# file_upload_size_limits must be given as a COMPLETE inline table. Declaring
+# it as a sub-table header and setting only 'attachments' deploys cleanly and is
+# then silently ignored - verified against the live /api/ config, which kept
+# reporting 20000000 while body_limit_size below took effect immediately.
 [features.limits.global]
 body_limit_size = 200000000
 
-[features.limits.new_user.file_upload_size_limits]
-attachments = 150000000
+[features.limits.new_user]
+file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
 
-[features.limits.default.file_upload_size_limits]
-attachments = 150000000
+[features.limits.default]
+file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
 EOF
 
 printf '{"api":"%s/api"}\n' "$PUBLIC_ORIGIN" > /run/stoat/stoat.json
