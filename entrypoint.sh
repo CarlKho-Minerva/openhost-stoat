@@ -131,6 +131,7 @@ default_bucket = "revolt-uploads"
 # reporting 20000000 while body_limit_size below took effect immediately.
 [features.limits.global]
 body_limit_size = 200000000
+file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
 
 [features.limits.new_user]
 file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
