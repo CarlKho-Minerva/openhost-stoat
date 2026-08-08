@@ -125,10 +125,16 @@ default_bucket = "revolt-uploads"
 # would silently leave those files out. Partial tables merge over the compiled
 # defaults (upstream's generate_config.sh sets video keys the same way), so
 # only the raised values need stating.
-# file_upload_size_limits must be given as a COMPLETE inline table. Declaring
-# it as a sub-table header and setting only 'attachments' deploys cleanly and is
-# then silently ignored - verified against the live /api/ config, which kept
-# reporting 20000000 while body_limit_size below took effect immediately.
+# KNOWN NOT TO WORK, kept only so nobody retries it: Autumn ignores
+# file_upload_size_limits from every config path tried on 2026-08-07 - per-tier
+# sub-table, per-tier complete inline table, and global. A 30 MB upload still
+# returns 422 FileTooLarge {"max":20000000} from
+# crates/services/autumn/src/api.rs:212, so the ceiling is not reachable from
+# Revolt.toml in this build. body_limit_size below DOES apply, which is how we
+# know the file is being read at all. Four files in Carl's Discord archive
+# exceed 20 MB; they stay in the cold archive on the T7/PC and the import notes
+# them inline rather than dropping them silently. Raising this needs either a
+# patched Autumn or writing to MinIO + the attachments collection directly.
 [features.limits.global]
 body_limit_size = 200000000
 file_upload_size_limits = { attachments = 150000000, avatars = 4000000, backgrounds = 6000000, banners = 6000000, emojis = 500000, icons = 2500000 }
