@@ -118,6 +118,21 @@ region = "us-east-1"
 access_key_id = "$MINIO_ROOT_USER"
 secret_access_key = "$MINIO_ROOT_PASSWORD"
 default_bucket = "revolt-uploads"
+
+# Stock Revolt caps attachments at 20 MB, which is under what a real Discord
+# archive holds - screen recordings and lecture captures run past 100 MB. This
+# is a single-owner instance on a 135 GB volume, so the cap buys nothing and
+# would silently leave those files out. Partial tables merge over the compiled
+# defaults (upstream's generate_config.sh sets video keys the same way), so
+# only the raised values need stating.
+[features.limits.global]
+body_limit_size = 200000000
+
+[features.limits.new_user.file_upload_size_limits]
+attachments = 150000000
+
+[features.limits.default.file_upload_size_limits]
+attachments = 150000000
 EOF
 
 printf '{"api":"%s/api"}\n' "$PUBLIC_ORIGIN" > /run/stoat/stoat.json
