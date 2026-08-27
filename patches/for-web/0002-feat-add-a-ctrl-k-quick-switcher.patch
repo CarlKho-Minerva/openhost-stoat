@@ -1,0 +1,517 @@
+From 84535b43ff43db237a255f896bdf718b7228a450 Mon Sep 17 00:00:00 2001
+From: Carl Kho <kho@uni.minerva.edu>
+Date: Thu, 27 Aug 2026 00:06:00 -0700
+Subject: [PATCH 2/2] feat: add a ctrl+k quick switcher
+
+Jumps to any server, channel or conversation by name, with arrow keys and
+enter driving the list so the caret never leaves the field.
+
+Matching is deliberately forgiving, in three tiers: a prefix beats a
+substring, a substring beats characters merely appearing in order. Everything
+compares lowercased, so capitalisation never decides whether a result shows
+up.
+
+The keybind filter suppresses ctrl+k while a modal is open, which also stops
+the switcher stacking a second copy of itself on every press.
+---
+ .../components/i18n/catalogs/en/messages.po   |  20 ++
+ .../components/keybinds/keybindActions.ts     |  15 +-
+ .../components/keybinds/keybindSequences.ts   |   2 +
+ packages/client/components/modal/modals.tsx   |   3 +
+ .../components/modal/modals/QuickSwitcher.tsx | 323 ++++++++++++++++++
+ packages/client/components/modal/types.ts     |   4 +
+ packages/client/src/Interface.tsx             |   9 +
+ 7 files changed, 374 insertions(+), 2 deletions(-)
+ create mode 100644 packages/client/components/modal/modals/QuickSwitcher.tsx
+
+diff --git a/packages/client/components/i18n/catalogs/en/messages.po b/packages/client/components/i18n/catalogs/en/messages.po
+index 38ba0a78..daf15c12 100644
+--- a/packages/client/components/i18n/catalogs/en/messages.po
++++ b/packages/client/components/i18n/catalogs/en/messages.po
+@@ -13,6 +13,26 @@ msgstr ""
+ "Language-Team: \n"
+ "Plural-Forms: \n"
+ 
++#: components/modal/modals/QuickSwitcher.tsx
++msgid "Direct message"
++msgstr "Direct message"
++
++#: components/modal/modals/QuickSwitcher.tsx
++msgid "Group"
++msgstr "Group"
++
++#: components/modal/modals/QuickSwitcher.tsx
++msgid "Jump to"
++msgstr "Jump to"
++
++#: components/modal/modals/QuickSwitcher.tsx
++msgid "Jump to a server, channel or conversation"
++msgstr "Jump to a server, channel or conversation"
++
++#: components/modal/modals/QuickSwitcher.tsx
++msgid "Nothing matches that."
++msgstr "Nothing matches that."
++
+ #. js-lingui-explicit-id
+ #: components/i18n/dayjs.tsx
+ msgid "[Yesterday at] LT"
+diff --git a/packages/client/components/keybinds/keybindActions.ts b/packages/client/components/keybinds/keybindActions.ts
+index c31c6082..bcea93bc 100644
+--- a/packages/client/components/keybinds/keybindActions.ts
++++ b/packages/client/components/keybinds/keybindActions.ts
+@@ -51,6 +51,11 @@ export enum KeybindAction {
+    */
+   CHAT_SEARCH = "chat_search",
+ 
++  /**
++   * Open the quick switcher to jump to a server, channel or conversation
++   */
++  NAVIGATION_QUICK_SWITCHER = "navigation_quick_switcher",
++
+   /**
+    * Close the currently active modal
+    */
+@@ -87,6 +92,7 @@ export const ACTION_PRIORITY: KeybindAction[] = [
+   KeybindAction.NAVIGATION_CHANNEL_DOWN,
+ 
+   // ... all others
++  KeybindAction.NAVIGATION_QUICK_SWITCHER,
+   KeybindAction.CHAT_SEARCH,
+   KeybindAction.CHAT_FOCUS_COMPOSITION,
+ ];
+@@ -102,6 +108,7 @@ export const ACTION_PRIORITY: KeybindAction[] = [
+  */
+ export const PREVENT_DEFAULT_ACTIONS: ReadonlySet<KeybindAction> = new Set([
+   KeybindAction.CHAT_SEARCH,
++  KeybindAction.NAVIGATION_QUICK_SWITCHER,
+ ]);
+ 
+ /**
+@@ -116,9 +123,13 @@ export function keybindFilter(
+   currentlyBound: Record<KeybindAction, number>,
+   target: HTMLElement | null,
+ ) {
+-  if (keybind === KeybindAction.CHAT_SEARCH) {
++  if (
++    keybind === KeybindAction.CHAT_SEARCH ||
++    keybind === KeybindAction.NAVIGATION_QUICK_SWITCHER
++  ) {
+     // a modal or floating element owns the screen, so leave the shortcut to
+-    // the browser rather than opening a sidebar the user cannot see
++    // the browser rather than opening something behind it. This also stops the
++    // quick switcher stacking a second copy of itself on every press.
+     if (
+       currentlyBound[KeybindAction.CLOSE_FLOATING] ||
+       currentlyBound[KeybindAction.CLOSE_MODAL]
+diff --git a/packages/client/components/keybinds/keybindSequences.ts b/packages/client/components/keybinds/keybindSequences.ts
+index ca1d3d23..3abcedd5 100644
+--- a/packages/client/components/keybinds/keybindSequences.ts
++++ b/packages/client/components/keybinds/keybindSequences.ts
+@@ -14,6 +14,7 @@ export const DEFAULT_SEQUENCES: Record<KeybindAction, (string | RegExp)[]> = {
+   [KeybindAction.CHAT_REMOVE_COMPOSITION_ELEMENT]: ["Escape"],
+   [KeybindAction.CHAT_CANCEL_EDITING]: ["Escape"],
+   [KeybindAction.CHAT_SEARCH]: ["Control", "f"],
++  [KeybindAction.NAVIGATION_QUICK_SWITCHER]: ["Control", "k"],
+   [KeybindAction.CLOSE_MODAL]: ["Escape"],
+   [KeybindAction.CLOSE_FLOATING]: ["Escape"],
+   [KeybindAction.CLOSE_SIDEBAR]: ["Escape"],
+@@ -43,6 +44,7 @@ export const DEFAULT_MAC_SEQUENCES: Record<KeybindAction, (string | RegExp)[]> =
+     [KeybindAction.CHAT_REMOVE_COMPOSITION_ELEMENT]: ["Escape"],
+     [KeybindAction.CHAT_CANCEL_EDITING]: ["Escape"],
+     [KeybindAction.CHAT_SEARCH]: ["Meta", "f"],
++    [KeybindAction.NAVIGATION_QUICK_SWITCHER]: ["Meta", "k"],
+     [KeybindAction.CLOSE_MODAL]: ["Escape"],
+     [KeybindAction.CLOSE_FLOATING]: ["Escape"],
+     [KeybindAction.CLOSE_SIDEBAR]: ["Escape"],
+diff --git a/packages/client/components/modal/modals.tsx b/packages/client/components/modal/modals.tsx
+index fc8e269c..668cd813 100644
+--- a/packages/client/components/modal/modals.tsx
++++ b/packages/client/components/modal/modals.tsx
+@@ -45,6 +45,7 @@ import { MFAFlowModal } from "./modals/MFAFlow";
+ import { MFARecoveryModal } from "./modals/MFARecovery";
+ import { OnboardingModal } from "./modals/Onboarding";
+ import { PolicyChangeModal } from "./modals/PolicyChange";
++import { QuickSwitcherModal } from "./modals/QuickSwitcher";
+ import { RemoveMemberModal } from "./modals/RemoveMember";
+ import { RenameSessionModal } from "./modals/RenameSession";
+ import { ReportContentModal } from "./modals/ReportContent";
+@@ -82,6 +83,8 @@ export function RenderModal(props: ActiveModal & { onClose: () => void }) {
+       return <AddBotModal {...modalProps} />;
+     case "add_friend":
+       return <AddFriendModal {...modalProps} />;
++    case "quick_switcher":
++      return <QuickSwitcherModal {...modalProps} />;
+     case "ban_member":
+       return <BanMemberModal {...modalProps} />;
+     case "ban_non_member":
+diff --git a/packages/client/components/modal/modals/QuickSwitcher.tsx b/packages/client/components/modal/modals/QuickSwitcher.tsx
+new file mode 100644
+index 00000000..cbcebac9
+--- /dev/null
++++ b/packages/client/components/modal/modals/QuickSwitcher.tsx
+@@ -0,0 +1,323 @@
++import {
++  For,
++  Show,
++  createEffect,
++  createMemo,
++  createSignal,
++  on,
++} from "solid-js";
++
++import { Trans, useLingui } from "@lingui-solid/solid/macro";
++import { styled } from "styled-system/jsx";
++
++import { useNavigate } from "@revolt/routing";
++import { Dialog, DialogProps } from "@revolt/ui";
++
++import { Modals } from "../types";
++
++/**
++ * How many results to render at once
++ */
++const RESULT_LIMIT = 12;
++
++/**
++ * One thing the switcher can jump to
++ */
++type Entry = {
++  id: string;
++  /**
++   * What the user is searching against
++   */
++  label: string;
++  /**
++   * Where it lives, shown to the right of the label
++   */
++  context?: string;
++  /**
++   * Prefix marking what kind of thing this is
++   */
++  sigil: string;
++  path: string;
++};
++
++/**
++ * Score a candidate against a query.
++ *
++ * Deliberately forgiving, in three tiers: a prefix beats a substring, and a
++ * substring beats characters merely appearing in order. Returning null means
++ * no match at all. Everything is compared lowercased, so capitalisation never
++ * decides whether a result appears.
++ */
++function scoreEntry(label: string, query: string): number | null {
++  const haystack = label.toLowerCase();
++  const needle = query.toLowerCase();
++
++  if (haystack.startsWith(needle)) return 1000 - haystack.length;
++
++  const index = haystack.indexOf(needle);
++  if (index !== -1) {
++    // A match starting a word reads as more deliberate than one mid-word.
++    const onBoundary = index === 0 || /[\s\-_#]/.test(haystack[index - 1]);
++    return (onBoundary ? 700 : 500) - index - haystack.length / 100;
++  }
++
++  // Subsequence fallback: "gac" finds "general-accounts".
++  let cursor = 0;
++  let gaps = 0;
++  for (const character of needle) {
++    const found = haystack.indexOf(character, cursor);
++    if (found === -1) return null;
++    gaps += found - cursor;
++    cursor = found + 1;
++  }
++
++  return 200 - gaps;
++}
++
++/**
++ * Jump to any server, channel or conversation by name
++ */
++export function QuickSwitcherModal(
++  props: DialogProps & Modals & { type: "quick_switcher" },
++) {
++  const { t } = useLingui();
++  const navigate = useNavigate();
++
++  const [query, setQuery] = createSignal("");
++  const [selected, setSelected] = createSignal(0);
++
++  let inputRef: HTMLInputElement | undefined;
++
++  // The dialog mounts before the field exists, so focusing waits a tick.
++  createEffect(
++    on(
++      () => props.show,
++      (show) => {
++        if (show) {
++          queueMicrotask(() => inputRef?.focus());
++        } else {
++          setQuery("");
++          setSelected(0);
++        }
++      },
++    ),
++  );
++
++  /**
++   * Everything reachable, flattened into one searchable list
++   */
++  const entries = createMemo<Entry[]>(() => {
++    const out: Entry[] = [];
++
++    for (const server of props.client.servers.toList()) {
++      out.push({
++        id: server.id,
++        label: server.name,
++        sigil: "▸",
++        path: `/server/${server.id}`,
++      });
++    }
++
++    for (const channel of props.client.channels.toList()) {
++      const label = channel.displayName;
++      if (!label) continue;
++
++      if (channel.serverId) {
++        out.push({
++          id: channel.id,
++          label,
++          context: channel.server?.name,
++          sigil: "#",
++          path: channel.path,
++        });
++      } else if (channel.type === "DirectMessage" || channel.type === "Group") {
++        out.push({
++          id: channel.id,
++          label,
++          context: channel.type === "Group" ? t`Group` : t`Direct message`,
++          sigil: "@",
++          path: channel.path,
++        });
++      }
++    }
++
++    return out;
++  });
++
++  /**
++   * Entries matching the current query, best first
++   */
++  const results = createMemo(() => {
++    const search = query().trim();
++    if (!search) return entries().slice(0, RESULT_LIMIT);
++
++    return entries()
++      .map((entry) => ({ entry, score: scoreEntry(entry.label, search) }))
++      .filter((scored) => scored.score !== null)
++      .sort((a, b) => b.score! - a.score!)
++      .slice(0, RESULT_LIMIT)
++      .map((scored) => scored.entry);
++  });
++
++  // Keep the highlight in range as results change under it.
++  createEffect(
++    on(results, (list) => {
++      if (selected() >= list.length) setSelected(0);
++    }),
++  );
++
++  /**
++   * Navigate to an entry and dismiss
++   */
++  function choose(entry: Entry | undefined) {
++    if (!entry) return;
++    navigate(entry.path);
++    props.onClose();
++  }
++
++  /**
++   * Drive the list from the text field so the caret never has to leave it
++   */
++  function onKeyDown(event: KeyboardEvent) {
++    const list = results();
++
++    if (event.key === "ArrowDown") {
++      event.preventDefault();
++      setSelected((current) => (current + 1) % Math.max(list.length, 1));
++    } else if (event.key === "ArrowUp") {
++      event.preventDefault();
++      setSelected(
++        (current) => (current - 1 + list.length) % Math.max(list.length, 1),
++      );
++    } else if (event.key === "Enter") {
++      event.preventDefault();
++      choose(list[selected()]);
++    }
++  }
++
++  return (
++    <Dialog
++      show={props.show}
++      onClose={props.onClose}
++      title={<Trans>Jump to</Trans>}
++    >
++      <Field
++        ref={inputRef}
++        type="search"
++        aria-label={t`Jump to a server, channel or conversation`}
++        placeholder={t`Jump to a server, channel or conversation`}
++        value={query()}
++        onInput={(event) => {
++          setQuery(event.currentTarget.value);
++          setSelected(0);
++        }}
++        onKeyDown={onKeyDown}
++      />
++
++      <Results role="listbox">
++        <For each={results()}>
++          {(entry, index) => (
++            <Result
++              role="option"
++              type="button"
++              aria-selected={index() === selected()}
++              data-active={index() === selected() ? "" : undefined}
++              onMouseEnter={() => setSelected(index())}
++              onClick={() => choose(entry)}
++            >
++              <Sigil>{entry.sigil}</Sigil>
++              <Label>{entry.label}</Label>
++              <Show when={entry.context}>
++                <Context>{entry.context}</Context>
++              </Show>
++            </Result>
++          )}
++        </For>
++
++        <Show when={results().length === 0}>
++          <Empty>
++            <Trans>Nothing matches that.</Trans>
++          </Empty>
++        </Show>
++      </Results>
++    </Dialog>
++  );
++}
++
++const Field = styled("input", {
++  base: {
++    width: "100%",
++    padding: "var(--gap-md)",
++    borderRadius: "var(--borderRadius-md)",
++    border: "none",
++    background: "var(--md-sys-color-surface-container-highest)",
++    color: "var(--md-sys-color-on-surface)",
++    fontSize: "1rem",
++  },
++});
++
++const Results = styled("div", {
++  base: {
++    display: "flex",
++    flexDirection: "column",
++    gap: "2px",
++    marginTop: "var(--gap-md)",
++    minWidth: "320px",
++    maxHeight: "320px",
++    overflowY: "auto",
++  },
++});
++
++const Result = styled("button", {
++  base: {
++    display: "flex",
++    alignItems: "center",
++    gap: "var(--gap-md)",
++    width: "100%",
++    padding: "var(--gap-md)",
++    border: "none",
++    borderRadius: "var(--borderRadius-md)",
++    background: "transparent",
++    color: "var(--md-sys-color-on-surface)",
++    cursor: "pointer",
++    textAlign: "start",
++
++    "&[data-active]": {
++      background: "var(--md-sys-color-surface-container-highest)",
++    },
++  },
++});
++
++const Sigil = styled("span", {
++  base: {
++    flexShrink: 0,
++    width: "1rem",
++    textAlign: "center",
++    color: "var(--md-sys-color-on-surface-variant)",
++  },
++});
++
++const Label = styled("span", {
++  base: {
++    overflow: "hidden",
++    textOverflow: "ellipsis",
++    whiteSpace: "nowrap",
++  },
++});
++
++const Context = styled("span", {
++  base: {
++    marginInlineStart: "auto",
++    paddingInlineStart: "var(--gap-md)",
++    flexShrink: 0,
++    fontSize: "0.8rem",
++    color: "var(--md-sys-color-on-surface-variant)",
++  },
++});
++
++const Empty = styled("div", {
++  base: {
++    padding: "var(--gap-md)",
++    color: "var(--md-sys-color-on-surface-variant)",
++  },
++});
+diff --git a/packages/client/components/modal/types.ts b/packages/client/components/modal/types.ts
+index a27c479c..723775f1 100644
+--- a/packages/client/components/modal/types.ts
++++ b/packages/client/components/modal/types.ts
+@@ -36,6 +36,10 @@ export type Modals =
+       type: "add_friend";
+       client: Client;
+     }
++  | {
++      type: "quick_switcher";
++      client: Client;
++    }
+   | {
+       type: "add_members_to_group";
+       client: Client;
+diff --git a/packages/client/src/Interface.tsx b/packages/client/src/Interface.tsx
+index b4e6b954..22cc965e 100644
+--- a/packages/client/src/Interface.tsx
++++ b/packages/client/src/Interface.tsx
+@@ -16,6 +16,7 @@ import { Titlebar } from "@revolt/app/interface/desktop/Titlebar";
+ import { useClient, useClientLifecycle } from "@revolt/client";
+ import { State } from "@revolt/client/Controller";
+ import { NotificationsWorker } from "@revolt/client/NotificationsWorker";
++import { createKeybind, KeybindAction } from "@revolt/keybinds";
+ import { useModals } from "@revolt/modal";
+ import { Navigate, useBeforeLeave, useLocation } from "@revolt/routing";
+ import { useState } from "@revolt/state";
+@@ -35,6 +36,14 @@ const Interface = (props: { children: JSX.Element }) => {
+   const { isLoggedIn, lifecycle } = useClientLifecycle();
+   const { pathname } = useLocation();
+ 
++  // Quick switcher, reachable from anywhere in the app. The keybind filter
++  // suppresses it while a modal is already open, so it cannot stack.
++  createKeybind(KeybindAction.NAVIGATION_QUICK_SWITCHER, () => {
++    if (isLoggedIn()) {
++      openModal({ type: "quick_switcher", client: client() });
++    }
++  });
++
+   useBeforeLeave((e) => {
+     if (!e.defaultPrevented) {
+       if (e.to === "/settings") {

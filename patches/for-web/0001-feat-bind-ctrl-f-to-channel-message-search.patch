@@ -1,0 +1,240 @@
+From f79d2bdd0708a6b149c84c207429d81cd04add69 Mon Sep 17 00:00:00 2001
+From: Carl Kho <kho@uni.minerva.edu>
+Date: Wed, 26 Aug 2026 08:58:48 -0700
+Subject: [PATCH 1/2] feat: bind ctrl+f to channel message search
+
+Message search already existed but was reachable only through the header
+button, so ctrl+f fell through to the browser find bar, which only sees the
+messages currently rendered in the DOM.
+
+Adds a CHAT_SEARCH keybind, an allowlist the handler consults so the native
+find bar is suppressed for sequences the app fully replaces, and focus
+handling for the search field. Also clears the pressed-key set when Meta is
+released, since macOS withholds keyup for other keys while Command is held
+and the stale key would fire the sequence on the next Command press.
+---
+ .../components/i18n/catalogs/en/messages.po   |  4 +++
+ .../components/keybinds/keybindActions.ts     | 29 +++++++++++++++++
+ .../components/keybinds/keybindHandler.tsx    | 26 +++++++++++++++
+ .../components/keybinds/keybindSequences.ts   |  2 ++
+ .../src/interface/channels/ChannelHeader.tsx  | 32 ++++++++++++++++++-
+ .../interface/channels/text/TextChannel.tsx   |  9 ++++++
+ 6 files changed, 101 insertions(+), 1 deletion(-)
+
+diff --git a/packages/client/components/i18n/catalogs/en/messages.po b/packages/client/components/i18n/catalogs/en/messages.po
+index e17f0916..38ba0a78 100644
+--- a/packages/client/components/i18n/catalogs/en/messages.po
++++ b/packages/client/components/i18n/catalogs/en/messages.po
+@@ -2650,6 +2650,10 @@ msgstr "Search for groups..."
+ msgid "Search for users..."
+ msgstr "Search for users..."
+ 
++#: src/interface/channels/ChannelHeader.tsx
++msgid "Search messages"
++msgstr "Search messages"
++
+ #: components/app/interface/settings/user/Feedback.tsx
+ #~ msgid "See what we're currently working on."
+ #~ msgstr "See what we're currently working on."
+diff --git a/packages/client/components/keybinds/keybindActions.ts b/packages/client/components/keybinds/keybindActions.ts
+index 8b90753c..c31c6082 100644
+--- a/packages/client/components/keybinds/keybindActions.ts
++++ b/packages/client/components/keybinds/keybindActions.ts
+@@ -46,6 +46,11 @@ export enum KeybindAction {
+    */
+   CHAT_CANCEL_EDITING = "chat_cancel_editing",
+ 
++  /**
++   * Open message search for the current channel and focus the search field
++   */
++  CHAT_SEARCH = "chat_search",
++
+   /**
+    * Close the currently active modal
+    */
+@@ -82,9 +87,23 @@ export const ACTION_PRIORITY: KeybindAction[] = [
+   KeybindAction.NAVIGATION_CHANNEL_DOWN,
+ 
+   // ... all others
++  KeybindAction.CHAT_SEARCH,
+   KeybindAction.CHAT_FOCUS_COMPOSITION,
+ ];
+ 
++/**
++ * Actions that must suppress the browser's own handling of the sequence.
++ *
++ * Only listed here when the app fully replaces the native behaviour, since
++ * taking a browser shortcut away from the user is otherwise hostile. Ctrl+F
++ * qualifies: the native find bar only searches messages already rendered in
++ * the DOM, which for a virtualised, paginated channel is a misleading subset
++ * of the conversation.
++ */
++export const PREVENT_DEFAULT_ACTIONS: ReadonlySet<KeybindAction> = new Set([
++  KeybindAction.CHAT_SEARCH,
++]);
++
+ /**
+  * Filter keybinds with special logic
+  * @param keybind Keybind to filter
+@@ -97,6 +116,16 @@ export function keybindFilter(
+   currentlyBound: Record<KeybindAction, number>,
+   target: HTMLElement | null,
+ ) {
++  if (keybind === KeybindAction.CHAT_SEARCH) {
++    // a modal or floating element owns the screen, so leave the shortcut to
++    // the browser rather than opening a sidebar the user cannot see
++    if (
++      currentlyBound[KeybindAction.CLOSE_FLOATING] ||
++      currentlyBound[KeybindAction.CLOSE_MODAL]
++    )
++      return false;
++  }
++
+   if (keybind === KeybindAction.CHAT_FOCUS_COMPOSITION) {
+     // don't allow focusing if modal/floating is open
+     // or if we're editing a message
+diff --git a/packages/client/components/keybinds/keybindHandler.tsx b/packages/client/components/keybinds/keybindHandler.tsx
+index 203172f6..56df0d55 100644
+--- a/packages/client/components/keybinds/keybindHandler.tsx
++++ b/packages/client/components/keybinds/keybindHandler.tsx
+@@ -12,6 +12,7 @@ import {
+   ACTION_PRIORITY,
+   KeybindAction,
+   keybindFilter,
++  PREVENT_DEFAULT_ACTIONS,
+ } from "./keybindActions";
+ import { DEFAULT_MAC_SEQUENCES, DEFAULT_SEQUENCES } from "./keybindSequences";
+ 
+@@ -119,6 +120,22 @@ export function KeybindContext(props: { children: JSXElement }) {
+   function onKeyDown(event: KeyboardEvent) {
+     target = event.target as HTMLElement;
+     activeKeys.add(event.key);
++
++    // Suppress the browser's own handling for the few sequences the app
++    // replaces outright. Checked after the key is registered so that the
++    // sequence being completed by this very event is taken into account.
++    // Guarded on something being bound first, so the common case of typing a
++    // message does not walk the priority list on every keystroke.
++    const anyBound = [...PREVENT_DEFAULT_ACTIONS].some(
++      (action) => currentlyBound[action],
++    );
++
++    if (anyBound) {
++      const action = firing();
++      if (action && PREVENT_DEFAULT_ACTIONS.has(action)) {
++        event.preventDefault();
++      }
++    }
+   }
+ 
+   /**
+@@ -126,6 +143,15 @@ export function KeybindContext(props: { children: JSXElement }) {
+    */
+   function onKeyUp(event: KeyboardEvent) {
+     target = event.target as HTMLElement;
++
++    // While Command is held on macOS the browser does not deliver keyup for
++    // other keys, so those would stay in the set forever and make the next
++    // Command press fire a stale sequence. Releasing Command clears everything.
++    if (event.key === "Meta") {
++      activeKeys.clear();
++      return;
++    }
++
+     activeKeys.delete(event.key);
+   }
+ 
+diff --git a/packages/client/components/keybinds/keybindSequences.ts b/packages/client/components/keybinds/keybindSequences.ts
+index bb62f5a5..ca1d3d23 100644
+--- a/packages/client/components/keybinds/keybindSequences.ts
++++ b/packages/client/components/keybinds/keybindSequences.ts
+@@ -13,6 +13,7 @@ export const DEFAULT_SEQUENCES: Record<KeybindAction, (string | RegExp)[]> = {
+   [KeybindAction.CHAT_FOCUS_COMPOSITION]: [/^[^ ]$/],
+   [KeybindAction.CHAT_REMOVE_COMPOSITION_ELEMENT]: ["Escape"],
+   [KeybindAction.CHAT_CANCEL_EDITING]: ["Escape"],
++  [KeybindAction.CHAT_SEARCH]: ["Control", "f"],
+   [KeybindAction.CLOSE_MODAL]: ["Escape"],
+   [KeybindAction.CLOSE_FLOATING]: ["Escape"],
+   [KeybindAction.CLOSE_SIDEBAR]: ["Escape"],
+@@ -41,6 +42,7 @@ export const DEFAULT_MAC_SEQUENCES: Record<KeybindAction, (string | RegExp)[]> =
+     [KeybindAction.CHAT_FOCUS_COMPOSITION]: [/^[^ ]$/],
+     [KeybindAction.CHAT_REMOVE_COMPOSITION_ELEMENT]: ["Escape"],
+     [KeybindAction.CHAT_CANCEL_EDITING]: ["Escape"],
++    [KeybindAction.CHAT_SEARCH]: ["Meta", "f"],
+     [KeybindAction.CLOSE_MODAL]: ["Escape"],
+     [KeybindAction.CLOSE_FLOATING]: ["Escape"],
+     [KeybindAction.CLOSE_SIDEBAR]: ["Escape"],
+diff --git a/packages/client/src/interface/channels/ChannelHeader.tsx b/packages/client/src/interface/channels/ChannelHeader.tsx
+index 6525f974..9ab047f4 100644
+--- a/packages/client/src/interface/channels/ChannelHeader.tsx
++++ b/packages/client/src/interface/channels/ChannelHeader.tsx
+@@ -1,4 +1,12 @@
+-import { Accessor, Match, Setter, Show, Switch } from "solid-js";
++import {
++  Accessor,
++  createEffect,
++  Match,
++  on,
++  Setter,
++  Show,
++  Switch,
++} from "solid-js";
+ 
+ import { Trans, useLingui } from "@lingui-solid/solid/macro";
+ import { Channel } from "stoat.js";
+@@ -68,6 +76,25 @@ export function ChannelHeader(props: Props) {
+     return "";
+   };
+ 
++  /**
++   * Search field, present only while the search sidebar is open
++   */
++  let searchBoxRef: HTMLInputElement | undefined;
++
++  // Hand the caret to the search field whenever search opens, so the keyboard
++  // shortcut lands somewhere useful. The field is mounted by the same state
++  // change, so focusing is deferred until after this render.
++  createEffect(
++    on(
++      () => props.sidebarState?.().state,
++      (state) => {
++        if (state === "search") {
++          queueMicrotask(() => searchBoxRef?.focus());
++        }
++      },
++    ),
++  );
++
+   return (
+     <>
+       <Switch>
+@@ -277,6 +304,9 @@ export function ChannelHeader(props: Props) {
+           }
+         >
+           <SearchBox
++            ref={searchBoxRef}
++            type="search"
++            aria-label={t`Search messages`}
+             placeholder="Search messages..."
+             value={searchValue()!}
+             onChange={(e) =>
+diff --git a/packages/client/src/interface/channels/text/TextChannel.tsx b/packages/client/src/interface/channels/text/TextChannel.tsx
+index a32b3e75..bd0c05e1 100644
+--- a/packages/client/src/interface/channels/text/TextChannel.tsx
++++ b/packages/client/src/interface/channels/text/TextChannel.tsx
+@@ -160,6 +160,15 @@ export function TextChannel(props: ChannelPageProps) {
+     ),
+   );
+ 
++  // Open message search; the header focuses the field once it renders.
++  // Pressing it again while already searching keeps the existing query so the
++  // shortcut can be used to get back to the field without retyping.
++  createKeybind(KeybindAction.CHAT_SEARCH, () => {
++    if (sidebarState().state !== "search") {
++      setSidebarState({ state: "search", query: "" });
++    }
++  });
++
+   return (
+     <>
+       <Header placement="primary">
