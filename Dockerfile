@@ -45,6 +45,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 COPY entrypoint.sh /entrypoint.sh
 COPY owner_auth.py /opt/stoat/owner_auth.py
+COPY search_bridge.py /opt/stoat/search_bridge.py
 COPY import_stoatbridge.py import_discord_messages.py backfill_message_embeds.py /opt/stoat/tools/
 COPY openhost-sso.js /usr/share/nginx/html/openhost-sso.js
 
