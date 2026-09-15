@@ -14,7 +14,7 @@ FROM ghcr.io/stoatchat/proxy:v0.13.8 AS proxy
 # drag in 128 unrelated commits and a client two minor versions ahead of the
 # v0.13.8 API this image runs, which is a separate decision from adding a
 # keyboard shortcut.
-FROM node:26-bookworm AS web
+FROM node:24-bookworm AS web
 ARG FOR_WEB_COMMIT=746bee5821e5474cbcdeea414d04ead87b85fe43
 RUN corepack enable
 WORKDIR /src
