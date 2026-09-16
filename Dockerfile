@@ -6,54 +6,16 @@ FROM ghcr.io/stoatchat/api:v0.13.8 AS api
 FROM ghcr.io/stoatchat/events:v0.13.8 AS events
 FROM ghcr.io/stoatchat/file-server:v0.13.8 AS files
 FROM ghcr.io/stoatchat/proxy:v0.13.8 AS proxy
-# The web client is rebuilt from source rather than pulled as an image, so the
-# local patches below are actually in the bundle that ships. It is pinned to
-# 746bee5821e5474cbcdeea414d04ead87b85fe43 - the exact commit
-# ghcr.io/stoatchat/for-web:746bee5 was built from, released as
-# stoat-for-web 0.10.0 on 2026-06-30. Building from upstream main instead would
-# drag in 128 unrelated commits and a client two minor versions ahead of the
-# v0.13.8 API this image runs, which is a separate decision from adding a
-# keyboard shortcut.
-FROM node:24-bookworm AS web
-ARG FOR_WEB_COMMIT=746bee5821e5474cbcdeea414d04ead87b85fe43
-RUN corepack enable
-WORKDIR /src
-RUN git init -q . \
- && git remote add origin https://github.com/stoatchat/for-web.git \
- && git fetch -q --depth 1 origin "$FOR_WEB_COMMIT" \
- && git checkout -q FETCH_HEAD \
- && git submodule update --init --recursive --depth 1
-
-# ctrl+f message search and the ctrl+k quick switcher. Vendored as patches so
-# this repo stays the only thing that has to be pushed to deploy them; a fork
-# would be a second repo to keep in sync. git apply fails loudly on drift,
-# which is what should happen if the pinned commit ever moves.
-COPY patches/for-web/ /patches/
-# Applied one at a time and in order: the second patch's context includes lines
-# the first one adds, so a single `git apply` --check over both would reject it.
-RUN set -e; for patch in /patches/*.patch; do echo "==> applying $patch"; git apply --verbose "$patch"; done
-
-RUN pnpm install --frozen-lockfile \
- && pnpm --filter @lingui-solid/babel-plugin-lingui-macro build \
- && pnpm --filter @lingui-solid/babel-plugin-extract-messages build \
- && pnpm --filter solid-livekit-components build \
- && pnpm --filter stoat.js build \
- && pnpm --filter client exec node scripts/copyAssets.mjs \
- && pnpm --filter client exec lingui compile --typescript
-
-# entrypoint.sh rewrites these placeholders at container start, so the build
-# has to emit them literally rather than bake in a hostname. VITE_HOST is
-# deliberately absent: entrypoint does not substitute it, so setting it here
-# would ship the literal string "__VITE_HOST__" as the default host.
-ENV VITE_API_URL=__VITE_API_URL__ \
-    VITE_WS_URL=__VITE_WS_URL__ \
-    VITE_MEDIA_URL=__VITE_MEDIA_URL__ \
-    VITE_PROXY_URL=__VITE_PROXY_URL__ \
-    VITE_GIFBOX_URL=__VITE_GIFBOX_URL__ \
-    VITE_HCAPTCHA_SITEKEY=__VITE_HCAPTCHA_SITEKEY__ \
-    VITE_RNNOISE_WORKLET_CDN_URL=__VITE_RNNOISE_WORKLET_CDN_URL__ \
-    VITE_CFG_ENABLE_VIDEO=__VITE_CFG_ENABLE_VIDEO__
-RUN pnpm --filter client exec vite build
+# The web client is the prebuilt upstream image again, reverted 2026-09-15.
+# Building for-web from source (0fcd934, to carry the ctrl+f / ctrl+k patches)
+# cannot complete on this zone: `pnpm --filter client exec vite build` is
+# OOM-killed with SIGKILL every time. The box has 8 GiB total and ~4 GiB free
+# with no swap, and OpenHost applies `memory_mb` only to the run container, not
+# to the build, so raising it changes nothing. Stoat was down from 2026-09-09 to
+# 09-15 for that build. The patches in patches/for-web/ are kept: the way back is
+# to build the image on GitHub Actions (as openhost-cap does for cap-web) and pin
+# the digest here, so the zone never runs a heavy build again.
+FROM ghcr.io/stoatchat/for-web:746bee5 AS web
 FROM quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z AS minio
 FROM quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z AS minio_client
 
@@ -84,7 +46,7 @@ COPY --from=files /home/nonroot/revolt-autumn /opt/stoat/bin/revolt-autumn
 COPY --from=proxy /home/nonroot/revolt-january /opt/stoat/bin/revolt-january
 COPY --from=proxy /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=proxy /usr/local/bin/ffprobe /usr/local/bin/ffprobe
-COPY --from=web /src/packages/client/dist/ /usr/share/nginx/html/
+COPY --from=web /app/dist/ /usr/share/nginx/html/
 COPY --from=minio /usr/bin/minio /usr/local/bin/minio
 COPY --from=minio_client /usr/bin/mc /usr/local/bin/mc
 
