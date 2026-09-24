@@ -1,0 +1,154 @@
+name: Build patched Stoat web client
+
+# The zone cannot build the web client itself: `vite build` is OOM-killed on
+# its 8 GiB with no swap, and OpenHost's memory_mb applies only to the run
+# container, never the build. Stoat was down 2026-09-09 to 09-15 finding that
+# out. So the build happens here, and the zone only ever pulls the result.
+#
+# Output is a tiny image holding the built bundle at /app/dist, the same path
+# the upstream ghcr.io/stoatchat/for-web image uses, so the Dockerfile's
+# `COPY --from=web /app/dist/` line does not change. Only its FROM does, and
+# that is pinned by digest on purpose: a redeploy must never silently pick up
+# a new client. To ship a patch change, let this run, then bump the digest.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "patches/for-web/**"
+      - ".github/workflows/build-web.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # The exact commit ghcr.io/stoatchat/for-web:746bee5 was built from,
+  # stoat-for-web 0.10.0. Moving this is an upgrade, not a patch.
+  FOR_WEB_COMMIT: 746bee5821e5474cbcdeea414d04ead87b85fe43
+  IMAGE: ghcr.io/carlkho-minerva/stoat-web
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+
+      # Node 25+ ships no corepack, so pnpm comes straight from npm at the
+      # version the upstream lockfile and .mise/config.toml pin.
+      - run: npm install -g pnpm@11.3.0
+
+      - name: Fetch for-web at the pinned commit
+        run: |
+          set -euo pipefail
+          git init -q for-web
+          cd for-web
+          git remote add origin https://github.com/stoatchat/for-web.git
+          # Fetch-by-sha needs the full 40-character sha.
+          git fetch -q --depth 1 origin "$FOR_WEB_COMMIT"
+          git checkout -q FETCH_HEAD
+          # packages/client/assets points at a private host but is marked
+          # `update = none`, so it is skipped and the fallback assets are used.
+          git submodule update --init --recursive --depth 1
+
+      - name: Apply patches in order
+        working-directory: for-web
+        run: |
+          set -euo pipefail
+          # One at a time: each patch's context includes lines the previous
+          # one adds, so checking them all against the base would reject them.
+          for patch in "$GITHUB_WORKSPACE"/patches/for-web/*.patch; do
+            echo "==> $(basename "$patch")"
+            git apply --verbose "$patch"
+          done
+
+      - name: Build
+        working-directory: for-web
+        env:
+          # entrypoint.sh rewrites these at container start, so they must be
+          # emitted literally. VITE_HOST is deliberately absent: entrypoint
+          # does not substitute it, and the literal would ship as the host.
+          VITE_API_URL: __VITE_API_URL__
+          VITE_WS_URL: __VITE_WS_URL__
+          VITE_MEDIA_URL: __VITE_MEDIA_URL__
+          VITE_PROXY_URL: __VITE_PROXY_URL__
+          VITE_GIFBOX_URL: __VITE_GIFBOX_URL__
+          VITE_HCAPTCHA_SITEKEY: __VITE_HCAPTCHA_SITEKEY__
+          VITE_RNNOISE_WORKLET_CDN_URL: __VITE_RNNOISE_WORKLET_CDN_URL__
+          VITE_CFG_ENABLE_VIDEO: __VITE_CFG_ENABLE_VIDEO__
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm --filter @lingui-solid/babel-plugin-lingui-macro build
+          pnpm --filter @lingui-solid/babel-plugin-extract-messages build
+          pnpm --filter solid-livekit-components build
+          pnpm --filter stoat.js build
+          pnpm --filter client exec node scripts/copyAssets.mjs
+          pnpm --filter client exec lingui compile --typescript
+          pnpm --filter client exec vite build
+
+      # Fail here, not on the zone, if the bundle is not what entrypoint.sh
+      # and the patches expect.
+      - name: Verify the bundle
+        working-directory: for-web/packages/client/dist
+        run: |
+          set -euo pipefail
+          expected="__VITE_API_URL__ __VITE_CFG_ENABLE_VIDEO__ __VITE_GIFBOX_URL__ __VITE_HCAPTCHA_SITEKEY__ __VITE_MEDIA_URL__ __VITE_PROXY_URL__ __VITE_RNNOISE_WORKLET_CDN_URL__ __VITE_WS_URL__"
+          found=$(grep -ohE '__VITE_[A-Z_]+__' assets/index-*.js | sort -u | tr '\n' ' ' | sed 's/ $//')
+          echo "placeholders: $found"
+          [ "$found" = "$expected" ] || { echo "::error::placeholder set differs from what entrypoint.sh substitutes"; exit 1; }
+          grep -rqF "Jump to a server, channel or conversation" assets/ \
+            || { echo "::error::quick switcher (ctrl+k) is missing from the bundle"; exit 1; }
+          grep -rqF "chat_search" assets/ \
+            || { echo "::error::ctrl+f keybind is missing from the bundle"; exit 1; }
+          echo "bundle ok"
+
+      - name: Package
+        run: |
+          mkdir -p image
+          cp -r for-web/packages/client/dist image/dist
+          printf '%s\n' \
+            'FROM scratch' \
+            'COPY dist /app/dist' > image/Dockerfile
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: image
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          # Links the package to this public repo, so it inherits public
+          # visibility and the zone can pull it without credentials.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Stoat for-web ${{ env.FOR_WEB_COMMIT }} with patches/for-web applied
+
+      - name: Summary
+        run: |
+          {
+            echo "### Built ${IMAGE}"
+            echo ""
+            echo "Pin this in the Dockerfile's web stage:"
+            echo ""
+            echo '```'
+            echo "FROM ${IMAGE}@${{ steps.push.outputs.digest }} AS web"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "digest=${{ steps.push.outputs.digest }}"
