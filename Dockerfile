@@ -6,16 +6,22 @@ FROM ghcr.io/stoatchat/api:v0.13.8 AS api
 FROM ghcr.io/stoatchat/events:v0.13.8 AS events
 FROM ghcr.io/stoatchat/file-server:v0.13.8 AS files
 FROM ghcr.io/stoatchat/proxy:v0.13.8 AS proxy
-# The web client is the prebuilt upstream image again, reverted 2026-09-15.
-# Building for-web from source (0fcd934, to carry the ctrl+f / ctrl+k patches)
-# cannot complete on this zone: `pnpm --filter client exec vite build` is
-# OOM-killed with SIGKILL every time. The box has 8 GiB total and ~4 GiB free
-# with no swap, and OpenHost applies `memory_mb` only to the run container, not
-# to the build, so raising it changes nothing. Stoat was down from 2026-09-09 to
-# 09-15 for that build. The patches in patches/for-web/ are kept: the way back is
-# to build the image on GitHub Actions (as openhost-cap does for cap-web) and pin
-# the digest here, so the zone never runs a heavy build again.
-FROM ghcr.io/stoatchat/for-web:746bee5 AS web
+# The web client is stoat-for-web 746bee5 (0.10.0, the commit the upstream
+# ghcr.io/stoatchat/for-web:746bee5 image was built from) with patches/for-web
+# applied: ctrl+f message search and the ctrl+k quick switcher. It is built by
+# .github/workflows/build-web.yml on GitHub Actions and pulled here by digest,
+# because this zone cannot build it: `vite build` is OOM-killed on 8 GiB with
+# no swap, and OpenHost's memory_mb applies only to the run container.
+# The image holds the bundle at /app/dist, the same path as upstream's, so the
+# COPY below is unchanged. To ship a patch change: let the Action run, check its
+# summary, then bump this digest deliberately.
+#
+# History:
+# - 2026-09-09: built from source on the zone (0fcd934). OOM-killed every time;
+#   Stoat was down until 09-15.
+# - 2026-09-15: reverted to the prebuilt upstream image, patches kept (ca1dee6).
+# - 2026-09-24: built on Actions instead, run 36039493850 from 82aa749.
+FROM ghcr.io/carlkho-minerva/stoat-web@sha256:4456660e22dcef8b78a6e4f67bc2f92eaa260735bb4ffbddda7e55aa0f612e6b AS web
 FROM quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z AS minio
 FROM quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z AS minio_client
 
