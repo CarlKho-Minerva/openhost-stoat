@@ -33,7 +33,11 @@ MAX_TERMS = 8
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
-SEARCH_ROUTE = re.compile(r"^/channels/([0-9A-HJKMNP-TV-Z]{26})/search$")
+# nginx forwards the original URI unchanged, so requests arrive as
+# /api/channels/{id}/search. The prefix is optional so a direct call on this
+# port matches too. Requiring the bare form made every real search 404 from
+# 2026-09-15 to 09-24, and nothing logged it.
+SEARCH_ROUTE = re.compile(r"^(?:/api)?/channels/([0-9A-HJKMNP-TV-Z]{26})/search$")
 # Quoted runs stay together as a phrase; everything else splits on whitespace.
 TERM_PATTERN = re.compile(r'"([^"]+)"|(\S+)')
 
@@ -181,6 +185,8 @@ class Handler(BaseHTTPRequestHandler):
         match = SEARCH_ROUTE.match(self.path)
 
         if not match:
+            # Only a routing mistake lands here, so say so loudly.
+            log(f"UNROUTED path {self.path!r}: nginx and SEARCH_ROUTE disagree")
             self._respond(404, {"type": "NotFound"})
             return
         if not token:
@@ -202,7 +208,8 @@ class Handler(BaseHTTPRequestHandler):
             # Loud, then fall through to Delta so search still works.
             log(f"FAILED on {channel_id}: {type(error).__name__}: {error}")
             log("falling back to Delta's own search for this request")
-            status, body = proxy_to_delta(self.path, raw, token)
+            # Delta listens without the /api prefix nginx strips for it.
+            status, body = proxy_to_delta(f"/channels/{channel_id}/search", raw, token)
             self._respond(status, body)
 
     def log_message(self, message, *args):
